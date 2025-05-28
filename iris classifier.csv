@@ -1,0 +1,182 @@
+# Import necessary libraries
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.linear_model import LogisticRegression
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.svm import SVC
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+
+# --- 1. Load the Data ---
+# Assuming 'Iris.csv' is in the same directory or you provide the full path
+try:
+    df = pd.read_csv('Iris.csv')
+except FileNotFoundError:
+    print("Error: 'Iris.csv' not found. Please make sure the file is in the correct directory.")
+    # As a fallback, try loading from sklearn (though the prompt suggests using the downloaded CSV)
+    try:
+        from sklearn.datasets import load_iris
+        iris = load_iris()
+        df = pd.DataFrame(data= np.c_[iris['data'], iris['target']],
+                          columns= iris['feature_names'] + ['target'])
+        # Map target numbers to species names for consistency with CSV
+        species_map = {0: 'Iris-setosa', 1: 'Iris-versicolor', 2: 'Iris-virginica'}
+        df['Species'] = df['target'].map(species_map)
+        df = df.drop('target', axis=1)
+        # Standardize column names to match typical CSV
+        df.columns = ['SepalLengthCm', 'SepalWidthCm', 'PetalLengthCm', 'PetalWidthCm', 'Species']
+        print("Loaded Iris dataset from scikit-learn as a fallback.")
+    except Exception as e:
+        print(f"Could not load data from scikit-learn either: {e}")
+        exit()
+
+print("--- Data Head ---")
+print(df.head())
+
+# The CSV might have an 'Id' column, which is not useful for classification.
+if 'Id' in df.columns:
+    df = df.drop('Id', axis=1)
+    print("\n'Id' column dropped.")
+
+# --- 2. Exploratory Data Analysis (EDA) ---
+print("\n--- Data Info ---")
+df.info()
+
+print("\n--- Descriptive Statistics ---")
+print(df.describe())
+
+print("\n--- Class Distribution ---")
+print(df['Species'].value_counts())
+
+# Visualizations
+sns.pairplot(df, hue='Species', markers=["o", "s", "D"])
+plt.suptitle("Pair Plot of Iris Features by Species", y=1.02)
+plt.show()
+
+plt.figure(figsize=(12, 6))
+for i, feature in enumerate(df.columns[:-1]): # Exclude 'Species'
+    plt.subplot(2, 2, i+1)
+    sns.boxplot(x='Species', y=feature, data=df)
+    plt.title(f'Boxplot of {feature} by Species')
+plt.tight_layout()
+plt.show()
+
+# --- 3. Data Preprocessing ---
+# Separate features (X) and target (y)
+X = df.drop('Species', axis=1)
+y = df['Species']
+
+# Encode the categorical target variable 'Species'
+le = LabelEncoder()
+y_encoded = le.fit_transform(y)
+
+# Store mapping for later interpretation
+species_mapping = dict(zip(le.classes_, le.transform(le.classes_)))
+species_mapping_inverse = dict(zip(le.transform(le.classes_), le.classes_))
+print(f"\nSpecies mapping: {species_mapping}") # e.g., {'Iris-setosa': 0, 'Iris-versicolor': 1, 'Iris-virginica': 2}
+
+# Split data into training and testing sets
+# stratify=y_encoded ensures that the class proportions are similar in train and test sets
+X_train, X_test, y_train, y_test = train_test_split(X, y_encoded, test_size=0.2, random_state=42, stratify=y_encoded)
+
+print(f"\nShape of X_train: {X_train.shape}")
+print(f"Shape of X_test: {X_test.shape}")
+print(f"Shape of y_train: {y_train.shape}")
+print(f"Shape of y_test: {y_test.shape}")
+
+# --- 4. Feature Scaling ---
+# Scale numerical features for algorithms sensitive to feature magnitudes (e.g., KNN, SVM, Logistic Regression)
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test) # IMPORTANT: Use transform only on test data, no re-fitting
+
+# --- 5. Model Selection and Training ---
+models = {
+    "Logistic Regression": LogisticRegression(max_iter=200, random_state=42),
+    "K-Nearest Neighbors (KNN)": KNeighborsClassifier(n_neighbors=5), # Common default for n_neighbors
+    "Support Vector Machine (SVM)": SVC(kernel='rbf', probability=True, random_state=42), # RBF kernel is a good default
+    "Decision Tree": DecisionTreeClassifier(random_state=42),
+    "Random Forest": RandomForestClassifier(n_estimators=100, random_state=42)
+}
+
+trained_models = {}
+model_accuracies = {}
+
+print("\n--- Model Training and Evaluation ---")
+for name, model in models.items():
+    print(f"\nTraining {name}...")
+    # Train the model
+    model.fit(X_train_scaled, y_train)
+    trained_models[name] = model
+
+    # Make predictions on the test set
+    y_pred = model.predict(X_test_scaled)
+
+    # --- 6. Model Evaluation ---
+    accuracy = accuracy_score(y_test, y_pred)
+    model_accuracies[name] = accuracy
+    print(f"Accuracy for {name}: {accuracy:.4f}")
+
+    print(f"Classification Report for {name}:")
+    # Use le.classes_ to get original string labels for the report
+    print(classification_report(y_test, y_pred, target_names=le.classes_))
+
+    # Confusion Matrix
+    cm = confusion_matrix(y_test, y_pred)
+    plt.figure(figsize=(6,4))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=le.classes_, yticklabels=le.classes_)
+    plt.xlabel('Predicted Label')
+    plt.ylabel('True Label')
+    plt.title(f'Confusion Matrix - {name}')
+    plt.show()
+
+print("\n--- Summary of Model Accuracies ---")
+for name, acc in model_accuracies.items():
+    print(f"{name}: {acc:.4f}")
+
+best_model_name = max(model_accuracies, key=model_accuracies.get)
+best_model = trained_models[best_model_name]
+print(f"\nBest performing model: {best_model_name} with accuracy {model_accuracies[best_model_name]:.4f}")
+
+
+# --- 7. Prediction on New Data (Example) ---
+# Let's use the best model for prediction on some hypothetical new flower measurements
+# Note: These measurements should be in the same order as the training features:
+# SepalLengthCm, SepalWidthCm, PetalLengthCm, PetalWidthCm
+
+print("\n--- Prediction on New Hypothetical Data ---")
+# Example 1: Expected Setosa (small petals, wide sepals relative to length)
+# Example 2: Expected Virginica (large petals, large sepals)
+# Example 3: Expected Versicolor (intermediate)
+new_flower_data = np.array([
+    [5.0, 3.5, 1.5, 0.2],  # Likely Setosa
+    [7.0, 3.2, 5.0, 1.8],  # Likely Virginica
+    [6.0, 2.8, 4.5, 1.5]   # Likely Versicolor
+])
+
+# IMPORTANT: The new data must be scaled using the SAME scaler fitted on the training data
+new_flower_data_scaled = scaler.transform(new_flower_data)
+
+# Predict using the best model
+predictions_encoded = best_model.predict(new_flower_data_scaled)
+
+# Convert encoded predictions back to original species names
+predictions_species = le.inverse_transform(predictions_encoded)
+
+print("\nHypothetical flower measurements (SepalL, SepalW, PetalL, PetalW):")
+for i, data_point in enumerate(new_flower_data):
+    print(f"Flower {i+1}: {data_point} --> Predicted Species: {predictions_species[i]}")
+
+# You can also get probabilities if the model supports it (e.g., Logistic Regression, SVC with probability=True, RandomForest)
+if hasattr(best_model, "predict_proba"):
+    probabilities = best_model.predict_proba(new_flower_data_scaled)
+    print("\nPrediction Probabilities:")
+    for i, probs in enumerate(probabilities):
+        print(f"Flower {i+1}:")
+        for j, class_name in enumerate(le.classes_):
+            print(f"  - P({class_name}) = {probs[j]:.4f}")
